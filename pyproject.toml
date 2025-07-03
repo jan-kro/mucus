@@ -14,7 +14,7 @@ pydantic = "1.10.4"
 tidynamics = "1.0.0"
 h5py = "^3.9.0"
 tqdm = "4.67.1" 
-rust_mucus = {git = https://github.com/jan-kro/rust_mucus.git}
+rust_mucus = {git = "https://github.com/jan-kro/rust_mucus.git"}
 
 
 [build-system]
