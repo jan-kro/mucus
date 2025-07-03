@@ -7,7 +7,7 @@ import rust_mucus as rmc
 
 from .config import Config
 from .topology import Topology
-from .utils import get_path, get_number_of_frames
+from .utils import get_path, get_number_of_frames, Filetypes
 from pathlib import Path
 from tqdm import tqdm
 
@@ -38,6 +38,7 @@ class System:
         # TODO IMPLEMENT THIS PROPERLY
         self.mobility_list          = None
         
+        self.bond_list              = None
         self.cell_index             = None
         self.neighbor_cells_idx     = None
         self.head_array             = None
@@ -60,9 +61,18 @@ class System:
         
         self.traj_chunk      = np.zeros((self.config.chunksize, self.n_particles, 3))
         self.force_chunk     = np.zeros((self.config.chunksize, self.n_particles, 3))
-        self.dist_chunk      = np.zeros((self.config.chunksize, self.n_particles, self.n_particles))
+        
+        if self.config.write_distances:
+            self.dist_chunk      = np.zeros((self.config.chunksize, self.n_particles, self.n_particles), dtype=np.float64)
+        else:
+            self.dist_chunk      = np.zeros((self.config.chunksize, 1, 1), dtype=np.float64)
         
         self.forces          = np.zeros((self.n_particles, 3), dtype=np.float64)
+        
+        # create bond list
+        self.bond_list = [[] for _ in range(self.n_particles)]
+        for i, j in self.topology.bonds:
+            self.bond_list[i].append(j)
         
         # TODO implement this properly
         self.B_debye         = np.sqrt(self.config.c_S)*self.config.r0_nm/10 # from the relationship in the Hansing thesis [c_S] = mM
@@ -205,104 +215,53 @@ class System:
         
         return
     
-    def simulate(self, steps=None):
+    def simulate(self):
         """
-        Simulates the overdamped langevin dynamics of the system with the defined forcefield using forward Euler.
+        Simulates the overdamped Langevin dynamics of the system with the defined forcefield using forward Euler.
         """
-        
-        if steps == None:
-            steps = self.config.steps
         
         t_start = time()
         
         n_frames = get_number_of_frames(self.config)
         
+        # create datasets
+        
         # save initial pos
         if self.config.write_traj==True:
-            self.traj_chunk[0] = self.positions
-            #fh5_results.create_dataset("trajectory", shape=(n_frames, self.n_particles, 3), dtype="float16")
-            fh5_traj = h5py.File(get_path(self.config, filetype='trajectory'), 'w-')
-            fh5_traj.create_dataset("trajectory", shape=(n_frames, self.n_particles, 3), dtype="float32")
+            fh5_traj = h5py.File(get_path(self.config, filetype=Filetypes.Trajectory), 'w-')
+            fh5_traj.create_dataset(Filetypes.Trajectory.key, shape=(n_frames, self.n_particles, 3), dtype="float32")
         
         # define flag for distance writing
         if self.config.write_distances:
             write_distances = True
-            fh5_distances = h5py.File(get_path(self.config, filetype='distances'), 'w-')
-            fh5_distances.create_dataset("distances", shape=(n_frames, self.n_particles, self.n_particles), dtype="float16")
+            fh5_distances = h5py.File(get_path(self.config, filetype=Filetypes.Distances), 'w-')
+            fh5_distances.create_dataset(Filetypes.Distances.key, shape=(n_frames, self.n_particles, self.n_particles), dtype="float16")
         else:    
             write_distances = False
         
-        rmc.get_forces_cell_linked(
-                self.positions,
-                self.topology.tags,
-                self.topology.bond_table,
-                self.topology.force_constant_nn,
-                self.topology.r0_bond,
-                self.topology.sigma_lj,
-                self.topology.epsilon_lj,
-                self.topology.q_particle,
-                self.config.lB_debye,
-                self.B_debye,
-                self.forces,
-                self.dist_chunk[0],
-                self.box_length,
-                self.config.cutoff_pbc**2,
-                self.n_particles,
-                3,                          # number of dimensions
-                write_distances,
-                True,                       # use bond force
-                True,                       # use LJ force
-                False,                      # use Debye force
-                self.neighbor_cells_idx,
-                self.head_array,
-                self.list_array,
-                self.n_cells,
-                self.n_neighbor_cells
-            )
-            
-        if self.config.write_forces==True:
-            # rmc.get_forces(
-            #     self.positions,
-            #     self.topology.tags,
-            #     self.topology.bond_table,
-            #     self.topology.force_constant_nn,
-            #     self.topology.r0_bond,
-            #     self.topology.sigma_lj,
-            #     self.topology.epsilon_lj,
-            #     self.topology.q_particle,
-            #     self.config.lB_debye,
-            #     self.B_debye,
-            #     self.forces,
-            #     self.dist_chunk[0],
-            #     self.box_length,
-            #     self.config.cutoff_pbc**2,
-            #     self.n_particles,
-            #     3,
-            #     False,
-            #     True,
-            #     True,
-            #     False
-            # )
-            
-            self.force_chunk[0] = self.forces
-            fh5_forces = h5py.File(get_path(self.config, filetype='forces'), 'w-')
-            fh5_forces.create_dataset("forces", shape=(n_frames, self.n_particles, 3), dtype="float32")
+        if self.config.write_forces:
+            fh5_forces = h5py.File(get_path(self.config, filetype=Filetypes.Forces), 'w-')
+            fh5_forces.create_dataset(Filetypes.Forces.key, shape=(n_frames, self.n_particles, 3), dtype="float32")
         
-        idx_chunk = 1 # because traj_chunk[0] is already the initial position
+        idx_chunk = 0 
         idx_traj = 0
         
-        print(f"\nStarting simulation with {steps} steps.")
-        for step in tqdm(range(1, steps)):
+        print(f"\nStarting simulation with {self.config.steps} steps.")
+        for step in tqdm(range(self.config.steps)):
+            
+            # apply periodic boundary conditions (0, L) x (0, L) x (0, L)
+            self.apply_pbc()
+            
+            # update linked list
+            self.update_linked_list()
             
             # calculate forces
             self.forces.fill(0)
             
-            self.update_linked_list()
-            
-            rmc.get_forces_cell_linked(
+            rmc.get_forces_cell_linked_test(
                 self.positions,
                 self.topology.tags,
-                self.topology.bond_table,
+                self.bond_list,
                 self.topology.force_constant_nn,
                 self.topology.r0_bond,
                 self.topology.sigma_lj,
@@ -315,11 +274,11 @@ class System:
                 self.box_length,
                 self.config.cutoff_pbc**2,
                 self.n_particles,
-                3,                          # number of dimensions
+                3,                          # number of spatial dimensions
                 write_distances,
-                True,                       # use bond force
-                True,                       # use LJ force
-                False,                      # use Debye force
+                self.config.use_pot_bond,                       # use bond force
+                self.config.use_pot_WCA,                        # use LJ force
+                self.config.use_pot_debye,                      # use Debye force
                 self.neighbor_cells_idx,
                 self.head_array,
                 self.list_array,
@@ -327,15 +286,36 @@ class System:
                 self.n_neighbor_cells
             )
             
+            # rmc.get_forces_cell_linked(
+            #     self.positions,
+            #     self.topology.tags,
+            #     self.topology.bond_table,
+            #     self.topology.force_constant_nn,
+            #     self.topology.r0_bond,
+            #     self.topology.sigma_lj,
+            #     self.topology.epsilon_lj,
+            #     self.topology.q_particle,
+            #     self.config.lB_debye,
+            #     self.B_debye,
+            #     self.forces,
+            #     self.dist_chunk[idx_chunk],
+            #     self.box_length,
+            #     self.config.cutoff_pbc**2,
+            #     self.n_particles,
+            #     3,                          # number of dimensions
+            #     write_distances,
+            #     True,                       # use bond force
+            #     True,                       # use LJ force
+            #     False,                      # use Debye force
+            #     self.neighbor_cells_idx,
+            #     self.head_array,
+            #     self.list_array,
+            #     self.n_cells,
+            #     self.n_neighbor_cells
+            # )
+            
             # reset distance flag until next stride
             write_distances = False
-            
-            # integrate                                     # TODO implement mobility in forces
-            self.positions = self.positions + self.timestep*self.mobility_list*self.forces + self.force_Random()
-            
-            # apply periodic boundary conditions (0, L) x (0, L) x (0, L)
-            self.apply_pbc()
-
             
             if step%self.config.stride==0:
                 
@@ -363,6 +343,10 @@ class System:
                     idx_traj += self.config.chunksize
                     idx_chunk = 0
             
+            
+            # integrate                                     # TODO implement mobility in forces
+            self.positions = self.positions + self.timestep*self.mobility_list*self.forces + self.force_Random()
+            
         t_end = time()
         
         self.config.simulation_time = t_end - t_start
@@ -378,7 +362,7 @@ class System:
         
         if self.config.write_traj:        
             fh5_traj.close()
-        if self.config.write_forces:
+        if self.config.write_forces: 
             fh5_forces.close()
         if self.config.write_distances:    
             fh5_distances.close()

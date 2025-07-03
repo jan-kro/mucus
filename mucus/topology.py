@@ -4,13 +4,19 @@ import numpy as np
 from .config import Config
 from typing import Optional
 from pathlib import Path
-from .utils import get_path
+from .utils import get_path, Filetypes, ParametersKeys
 
-class Topology:
+
+
+#!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#! Implement the Filetypes and ParameterKeys enum
+#!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+class Topology: 
     
     def __init__(self, Config: Config):
         
-        self.positions = np.load(get_path(Config, "init_pos"))
+        self.positions = np.load(get_path(Config, Filetypes.InitPos))
         params = self._load_params(Config)
         
         self.r_particle         = np.array(params["r_particles"])
@@ -19,24 +25,26 @@ class Topology:
         self.force_constant_nn  = np.array(params["force_constants"])
         self.epsilon_lj         = np.array(params["epsilon_LJ"])
         self.sigma_lj           = np.array(params["sigma_LJ"])
-        #self.bonds              = np.array(params["bonds"])      # TODO remove at some point
-        self.bond_table         = np.array(params["bond_table"], dtype=bool)
-        self.tags               = np.array(params["tags"],       dtype=np.uint)
+        self.tags               = np.array(params["tags"])
+        self.bonds              = np.array(params["bonds"]) 
+        
         
         if "r0_bonds" not in params.keys():
             self.r0_bond        = 2*np.ones_like(self.force_constant_nn)
         else:
             self.r0_bond        = np.array(params["r0_bonds"])
         
+        
+        
         self.n_particles        = len(self.positions)
         self.ntags              = len(set(self.tags))
         
         self._validate_input()
-        self._clean_parameter_file(Config)
+        # self._clean_parameter_file(Config) #! NECESSARY???
         # self.save(Config)
     
     def _load_params(self, Config: Config):
-        params = toml.load(open(get_path(Config, "parameters"), encoding="UTF-8"))
+        params = toml.load(open(get_path(Config, Filetypes.Parameters), encoding="UTF-8"))
         
         # BACKWARDS COMPATIBILITY
         if "rbeads" in params.keys():
@@ -47,21 +55,38 @@ class Topology:
             params["q_particles"] = params["qbeads"]
             params.pop("qbeads")
         
-        if 'bond_table' not in params.keys():
-            n_particles = len(self.positions)
-            bond_table = np.zeros((n_particles, n_particles), dtype=bool)
-            for ij in params['bonds']:
-                bond_table[ij[0], ij[1]] = True
-            params['bond_table'] = bond_table
-            params.pop('bonds')
+        if "bond_table" in params.keys():
+            bond_table = np.array(params["bond_table"], dtype=bool)
+            bonds = []
+            for i in range(Config.n_particles):
+                for j in range(Config.n_particles):
+                    if bond_table[i, j]: 
+                        bonds.append([i,j])
+            bonds = np.array(self.bonds, dtype=np.uint)
             
-        tags = params["tags"]
-        n_tags = len(set(tags))
+        elif "bonds" in params.keys():
+            if Path(params["bonds"]).is_file():
+                bonds = np.load(params["bonds"]).astype(np.uint)
+            else:
+                bonds = np.array(params["bonds"], dtype=np.uint)
+        else:
+            bonds = np.load(get_path(Config, Filetypes.Bonds)).astype(np.uint)
+        params["bonds"] = bonds
+        
+        if "tags" not in params.keys():
+            tags = np.load(get_path(Config, Filetypes.Tags)).astype(np.uint) 
+        elif Path(params["tags"]).is_file():
+            tags = np.load(params["tags"]).astype(np.uint)
+        else:
+            tags = np.array(params["tags"], dtype=np.uint)
+        params["tags"] = tags
+        
+        n_tags = len(set(tags.tolist()))
         
         if len(params["r_particles"]) != n_tags:
             r_all = np.array(params["r_particles"])
             r_particle = np.zeros(n_tags)
-            for i, r in zip(tags, r_all):
+            for i, r in zip(tags, r_all): 
                 r_particle[i] = r
             params["r_particles"] = r_particle.tolist()
         
@@ -81,6 +106,7 @@ class Topology:
         
         return params
     
+    #! completely unnecessary: use toml.dump() instead 
     def _clean_parameter_file(self, config: Config):#, fout: str = None, overwrite: bool = True):
         """
         saves all current values, which have been passed through 
@@ -160,7 +186,7 @@ class Topology:
                     "force_constant_nn": "force_constants",
                     "epsilon_lj": "epsilon_LJ",
                     "sigma_lj": "sigma_LJ",
-                    "bond_table": "bond_table",
+                    "bonds": "bonds",
                     "tags": "tags",
                     "r0_bond": "r0_bonds"}
         return KEY_DICT
@@ -303,7 +329,8 @@ class Topology:
             "forces"
         """
         
-        
+        #! change this to use the Filetypes enum
+        #! why is there even a get_path in the topology class??
         DIR_DICT = {"trajectory":           ("/trajectories/traj_",                 ".gro"),
                     "config":               ("/configs/cfg_",                       ".toml"),
                     "parameters":           ("/parameters/param_",                  ".toml"),

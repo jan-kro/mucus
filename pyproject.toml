@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "mucus"
+version = "0.1.0"
+description = "Simulation package of hydrogel systems"
+authors = ["Jan Maria Kroissenbrunner <janmak98@zedat.fu-berlin.de>"]
+readme = "README.md"
+packages = [{include = "mucus"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^1.23.5"
+toml = "0.10.2"
+pydantic = "1.10.4"
+tidynamics = "1.0.0"
+h5py = "^3.9.0"
+tqdm = "4.67.1"
+rust_mucus = {path = "/local_scratch/janmak98/rust_mucus", develop = false }
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

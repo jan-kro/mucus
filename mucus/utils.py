@@ -1,48 +1,60 @@
-import enum
 import os
 import toml
 import numpy as np
 import rust_mucus as rmc
 import h5py
 from .config import Config
+# from config import Config
 from typing import Optional
 from pathlib import Path
 from io import StringIO
 from tqdm import tqdm
-
-# TODO USE THIS INSTEAD OF STRINGS TO SPECIFY DATASET TYPE
-
-class Filetypes(enum.Enum):
-    Trajectory          = "trajectory"
-    TrajectoryGro       = "trajectory_gro"
-    Forces              = "forces"
-    Distances           = "distances"
-    Rdf                 = "rdf"
-    StructureFactor     = "structure_factor"
-    StructureFactorRdf  = "structure_factor_rdf"
-    StressTensor        = "stress_tensor"
-    Msd                 = "msd"
-    Results             = "results"
-    Config              = "config"
-    Parameters          = "parameters"
-    InitPos             = "init_pos"
+from enum import Enum
+from dataclasses import dataclass 
+import matplotlib.pyplot as plt
 
 
-class ResultsFiletypes(enum.Enum):
-    Trajectory          = Filetypes.Trajectory.value
-    TrajectoryGro       = Filetypes.TrajectoryGro.value
-    Forces              = Filetypes.Forces.value
-    Distances           = Filetypes.Distances.value
-    Rdf                 = Filetypes.Rdf.value
-    StructureFactor     = Filetypes.StructureFactor.value
-    StructureFactorRdf  = Filetypes.StructureFactorRdf.value
-    StressTensor        = Filetypes.StressTensor.value
-    Msd                 = Filetypes.Msd.value
+class Filetypes(Enum):
+    
+    TrajectoryGro      = ("snapshots",           "snap",        ".gro" , "trajectory_gro")     # Trajectory          = "trajectory"
+    Config             = ("configs",             "cfg",         ".toml", "config")     # TrajectoryGro       = "trajectory_gro"
+    Parameters         = ("parameters",          "param",       ".toml", "parameters")     # Forces              = "forces"
+    Tags               = ("parameters",          "tags",        ".npy",  "tags")
+    Bonds              = ("parameters",          "bonds",       ".npy",  "bonds")
+    InitPos            = ("initial_positions",   "xyz",         ".npy" , "init_pos")     # Distances           = "distances"
+    Rdf                = ("results",             "rdf",         ".hdf5", "rdf")     # Rdf                 = "rdf"
+    StructureFactor    = ("results",             "Sq",          ".hdf5", "structure_factor")     # StructureFactor     = "structure_factor"
+    StructureFactorRdf = ("results",             "Sq_rdf",      ".hdf5", "structure_factor_rdf")     # StructureFactorRdf  = "structure_factor_rdf"
+    StressTensor       = ("results",             "sigma",       ".hdf5", "stress_tensor")     # StressTensor        = "stress_tensor"
+    Msd                = ("results",             "msd",         ".hdf5", "msd")     # Msd                 = "msd"
+    Trajectory         = ("results",             "traj",        ".hdf5", "trajectory")     # Results             = "results"
+    Forces             = ("results",             "forces",      ".hdf5", "forces")     # Config              = "config"
+    Distances          = ("results",             "distances",   ".hdf5", "distances")     # Parameters          = "parameters"
+    Results            = ("results",             "results",     ".hdf5", "results")     # InitPos             = "init_pos"
 
-class ParametersFiletypes(enum.Enum):
-    Config              = Filetypes.Config.value
-    Parameters          = Filetypes.Parameters.value
-    InitPos             = Filetypes.InitPos.value
+    def __init__(self, subdir, prefix, suffix, key):
+        self._subdir = subdir
+        self._prefix = prefix
+        self._suffix = suffix
+        self._key    = key
+    
+    @property
+    def subdir(self):
+        return self._subdir
+    
+    @property
+    def prefix(self):
+        return self._prefix
+
+    @property
+    def suffix(self):
+        return self._suffix
+    
+    @property
+    def key(self):
+        return self._key
+
+class ParametersKeys(Enum):
     ParticleRadius      = "r_particles"
     ParticleCharge      = "q_particles"
     Mobility            = "mobilities"
@@ -50,11 +62,12 @@ class ParametersFiletypes(enum.Enum):
     LjEpsilon           = "epsilon_LJ"
     LjSigma             = "sigma_LJ"
     BondTable           = "bond_table"
+    BondList            = "bond_list"
     BondDistance        = "r0_bonds"
     Tags                = "tags"
 
 
-class ConfigParameters(enum.Enum):
+class ConfigKeys(Enum):
     Steps               = "steps"
     Stride              = "stride"
     NumParticles        = "n_particles"
@@ -76,9 +89,10 @@ class ConfigParameters(enum.Enum):
     DirSys              = "dir_sys"
     SimulationTime      = "simulation_time"
 
-class NatrualConstantsSI(enum.Enum):
-    kB = 1.380649e-23 # m^2 kg s^-2 K^-1
-    T = 300 # K
+class NatrualConstantsSI(Enum):
+    kB = 1.380649e-23   # m^2 kg s^-2 K^-1  Boltzmann constant
+    T = 300             # K                 Temperature
+    eta_w = 8.53e-4     # Pa*s              Water viscosity
     
 # Enum ForceType 
 #     None
@@ -104,127 +118,32 @@ class NatrualConstantsSI(enum.Enum):
 #     }
 # }
     
-# dset_to_write = Dataset.Trajectory
-# print(file[dset_to_write.value])
-
-# TODO somehow make this more elegant (also Enum class?)
-def _dir_dict():
+def create_fname(dir_sys, name_sys, filetype: Filetypes, overwrite=False):
+    base = Path(dir_sys) / Path(filetype.subdir)
+    fname = base / Path(f"{filetype.prefix}_{name_sys}{filetype.suffix}")
     
-    dir_dict = {"trajectory_gro":       ("/snapshots/traj_",                    ".gro"),
-                "config":               ("/configs/cfg_",                       ".toml"),
-                "parameters":           ("/parameters/param_",                  ".toml"),
-                "init_pos":             ("/initial_positions/xyz_",             ".npy"),
-                "rdf":                  ("/results/rdf_",                       ".hdf5"),
-                "structure_factor":     ("/results/Sq_",                        ".hdf5"),
-                "structure_factor_rdf": ("/results/Sq_rdf_",                    ".hdf5"),
-                "stress_tensor":        ("/results/sigma_",                     ".hdf5"),
-                "msd":                  ("/results/msd_",                       ".hdf5"),
-                "trajectory":           ("/results/traj_",                      ".hdf5"),
-                "forces":               ("/results/forces_",                    ".hdf5"),
-                "distances":            ("/results/distances_",                 ".hdf5"),
-                "results":              ("/results/results_",                   ".hdf5")}
-
-    return dir_dict
-
+    if not overwrite and fname.exists():
+        raise FileExistsError(f"File {fname} already")
     
-def get_path(Config: Optional[Config], 
-             filetype: str = "trajectory",
-             overwrite: bool = True,
-             ): # **kwargs):
-    """
-    Creates an outfile str for a specified filetype that includes the absolute directory and filename. 
-    If the directory does not exist, it is created. The overwrite call checks if the system name already 
-    exists in the output directory. If it does, a version str ("_vXX") is appended to the system name. 
+    if not os.path.exists(fname.parent):
+        os.makedirs(fname.parent)
     
-    filetype:
-        "trajectory"
-        "config"
-        "init_pos"
-        "parameters"
-        "rdf"
-        "structure_factor"
-        "forces"
-        "results"
-    """
-    
-
-    dir_dict = _dir_dict()
-        
-    if filetype not in dir_dict.keys():
-        raise ValueError(f"filetype {filetype} not valid")
-    
-    if isinstance(Config, str):
-        fname = Config.split("/configs/cfg_")[0] + dir_dict[filetype][0] + Config.split("/configs/cfg_")[1].split(".")[0] + dir_dict[filetype][1]
-    else:
-        fname = Config.dir_sys + dir_dict[filetype][0] + Config.name_sys + dir_dict[filetype][1]
-
-    
-    # split fname into base, name, version and ext
-    head_tail = os.path.split(fname)
-    base = head_tail[0]
-    name_tot, ext = os.path.splitext(head_tail[1])
-    split_arg = "_v"
-
-    # if the system should not be overwritten change the version
-    name_version = name_tot.split(split_arg)
-    
-    # check if there is a version contained in the name
-    if len(name_version) == 1:
-        # system name does not contain split arg "_v"
-        name = name_version[0]
-        version = 0
-    else:
-        try:
-            # make sure that version is an integer, otherwise it might just be a random "_vABC" string (idk eg. xyz_variable_input.npy)
-            version = int(name_version[-1])
-            name = name_version[0]
-            # reassemble name in case there is a second "_v" in the name
-            for part in name_version[1:-1]:
-                name += split_arg + part
-        # if split_arg is in the name but not followed by an integer, use total name as name
-        except:
-            # use total name as name
-            name = name_tot
-            version = 0
-
-    if overwrite == False:
-        # check if file already exists
-        if not os.path.exists(base + "/" + name + ext):
-            fname = base + "/" + name + ext
-        else:
-            # if file exist update version until no file with that version exists
-            while os.path.exists(base + "/" + name + split_arg + str(version) + ext):
-                version += 1
-            # update fname with new version
-            fname = base + "/" + name + split_arg + str(version) + ext
-
-    # if parent path doesnt exist, create it
-    if not os.path.exists(Path(fname).parent):
-        os.makedirs(Path(fname).parent)
-    
-    # if filetype == "results":
-    #     _create_results(fname, **kwargs)
-            
     return fname
+
+def get_path(Config: Config, filetype: Filetypes):
     
-def get_version(config: Config):
-    """
-    returns an integer of the name_sys version string. If no version is found, 0 is returned.
-    """
+    dir_sys = Config.dir_sys
+    name_sys = Config.name_sys
+    
+    fname = create_fname(dir_sys, name_sys, filetype, overwrite=True)
+    
+    return fname
 
-    split_arg = "_v"
-    name_version = config.name_sys.split(split_arg)
-    if len(name_version) == 1:
-        version = 0
-    else:
-        try:
-            # make sure that version is an integer, otherwise it might just be a random "_vABC" string (idk eg. xyz_variable_input.npy)
-            version = int(name_version[-1])
-        except:
-            version = 0
-
-    return version
-
+def get_filetype_from_key(key: str):
+    for filetype in Filetypes:
+        if filetype.key == key:
+            return filetype
+    raise ValueError(f"No filetype found with key '{key}'")
     
 def _validate_frame_range(frame_range, n_frames):
     if frame_range is None:
@@ -249,11 +168,13 @@ def _validate_frame_range(frame_range, n_frames):
     
     return frame_range
 
-def convert_trajectory(config: Optional[Config],
-                    trajectory: np.ndarray,
-                    fname: str = None,
-                    trajtype: str = "gro",
-                    overwrite: bool = False):
+def convert_trajectory(
+    config: Optional[Config],
+    trajectory: np.ndarray,
+    fname: str = None,
+    trajtype: str = "gro",
+    overwrite: bool = False):
+    
     """
     Converts trajectory (3d nd.array) to a specified fieltype
     (For now only type "gro" is possible)
@@ -265,17 +186,18 @@ def convert_trajectory(config: Optional[Config],
         raise ValueError("trajectory must be a 3d array")
     if trajtype == "gro":
         if fname is None:
-            fname = get_path(config, filetype=ResultsFiletypes.TrajectoryGro.value, overwrite=overwrite)
+            fname = get_path(config, filetype=Filetypes.TrajectoryGro, overwrite=overwrite)
         n_atoms = len(trajectory[0])
         for i, frame in enumerate(trajectory):
             _write_frame_gro(n_atoms, frame, i, fname)
 
 
-def traj_h5_to_gro(config: Optional[Config],
-                   frame_range: list = None,
-                   stride: int = 1,
-                   fname: str = None,
-                   overwrite: bool = False):
+def traj_h5_to_gro(
+    config: Optional[Config],
+    frame_range: list = None, 
+    stride: int = 1,
+    fname: str = None,
+    overwrite: bool = False):
     """
     Saves trajectory from h5 file as a gro file.
     """
@@ -288,7 +210,7 @@ def traj_h5_to_gro(config: Optional[Config],
     
     # get traj path
     if fname is None:
-        fname_traj = get_path(config, filetype=ResultsFiletypes.TrajectoryGro.value)
+        fname_traj = get_path(config, filetype=Filetypes.TrajectoryGro)
     
         if frame_range != None:
             frame_range = _validate_frame_range(frame_range, n_frames)
@@ -300,13 +222,13 @@ def traj_h5_to_gro(config: Optional[Config],
     frame_range = _validate_frame_range(frame_range, n_frames)
     
     # get h5py filename
-    fname_h5 = get_path(config, filetype=ResultsFiletypes.Trajectory.value)
+    fname_h5 = get_path(config, filetype=Filetypes.Trajectory)
     
     if not os.path.exists(fname_h5):
          raise FileNotFoundError(f"Trajectory file '{fname_h5}' not found")
     
     with h5py.File(fname_h5, "r") as h5_file:
-        trajectory = h5_file[ResultsFiletypes.Trajectory.value][frame_range[0]:frame_range[1]:stride]
+        trajectory = h5_file[Filetypes.Trajectory.key][frame_range[0]:frame_range[1]:stride]
         convert_trajectory(config, trajectory, fname=fname_traj, overwrite=overwrite, trajtype="gro")
 
 
@@ -330,9 +252,10 @@ def get_number_of_frames(config: Optional[Config]):
     return int(config.steps/config.stride)
     
 
-def delete_system(config: Optional[Config],
-                  only_results: bool = False,
-                  exceptions: list = []):
+def delete_system(
+    config: Optional[Config],
+    only_results: bool = False,
+    exceptions: list = []):
     """
     Deletes every file of a scpecified system. Use with care.
     """
@@ -366,10 +289,10 @@ def get_timestep_seconds(config: Optional[Config],
         if isinstance(config, str):
             config = Config.from_toml(config)
             
-        params = toml.load(open(get_path(config, "parameters"), encoding="UTF-8"))
+        params = toml.load(open(get_path(config, Filetypes.Parameters), encoding="UTF-8"))
         mobility = np.array(params["mobilities"])
         
-        mu = mobility[monomer_tag]  # mobility of the system in reduced units
+        mu = mobility[monomer_tag]      # mobility of the system in reduced units
         a = 1e-9*config.r0_nm           # m, reduced legth scale: PEG monomere radius
         r = 1*a                         # m, particle radius
 
@@ -383,3 +306,49 @@ def get_timestep_seconds(config: Optional[Config],
         dt = config.stride*dt_step*config.timestep # s
         
         return dt
+    
+
+def plot_box(positions, l_box, centered=False, nchains=None, title=None):
+    # todo add bond list as input argument
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+
+    # for i in range(len(positions)):
+    #    ax.scatter(positions[i, 0],positions[i, 1], positions[i, 2], c="b")
+    
+    ax.scatter(*positions.T, c="b")
+    
+    
+    xy = np.array(((0,0),
+                    (l_box, 0),
+                    (l_box, l_box),
+                    (0, l_box),
+                    (0,0)), dtype="float64")
+    
+    if nchains is not None:
+        bpc = int(len(positions)/nchains)
+        for i in range(nchains):
+            ax.plot(positions[i*bpc:(i+1)*bpc, 0], positions[i*bpc:(i+1)*bpc, 1], positions[i*bpc:(i+1)*bpc, 2])
+    
+    if centered==True:
+        xy -= l_box/2
+
+        ax.plot(xy[:, 0], xy[:, 1], zs=-l_box/2, zdir='z', c="r")
+        ax.plot(xy[:, 0], xy[:, 1], zs=l_box/2, zdir='z', c="r")
+        ax.plot(xy[:, 0], xy[:, 1], zs=-l_box/2, zdir='y', c="r")
+        ax.plot(xy[:, 0], xy[:, 1], zs=l_box/2, zdir='y', c="r")
+        
+    if centered == False:
+        ax.plot(xy[:, 0], xy[:, 1], zs=0, zdir='z', c="r")
+        ax.plot(xy[:, 0], xy[:, 1], zs=l_box, zdir='z', c="r")
+        ax.plot(xy[:, 0], xy[:, 1], zs=0, zdir='y', c="r")
+        ax.plot(xy[:, 0], xy[:, 1], zs=l_box, zdir='y', c="r")
+        
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    
+    if title is not None:
+        ax.set_title(title)
+    
+    plt.show()

@@ -10,7 +10,7 @@ from rust_mucus import get_dist
 from .config import Config
 from .topology import Topology
 # TODO import .utils as utils
-from .utils import ResultsFiletypes, NatrualConstantsSI, get_path, get_number_of_frames, _validate_frame_range
+from .utils import Filetypes, NatrualConstantsSI, get_path, get_number_of_frames, _validate_frame_range
 
 #! TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO 
 # change dataset storage system, such that all parameter files for every calculation is checked and if 
@@ -50,8 +50,8 @@ class Analysis:
         self.time = np.arange(self.frame_range[0],self.frame_range[1],self.stride)*self.cfg.stride*self.cfg.timestep
     
     def _exists(self,
-                key_dict = {"key": "structure_factor",
-                            "params": {"qmax": 2.0, "n": 1000}}):
+                key_dict = {"key": None,
+                            "params": {"a": None, "b": None}}):
         """
         Checks if a certain calculation was already done, with the exact parameters, specified in key dict
         """
@@ -59,12 +59,12 @@ class Analysis:
         key_dict["params"]["frame_range"] = self.frame_range
         key_dict["params"]["stride"] = self.stride
         
-        fname = get_path(self.cfg, filetype=key_dict["key"], overwrite=True)
+        fname = get_path(self.cfg, filetype=key_dict["key"])
         with h5py.File(fname, "a", locking=self.h5pylock) as fh5:
-            key_params = key_dict["key"] + "_params"
+            key_params = key_dict["key"].key + "_params"
             if key_params in fh5.keys():
                 if fh5[key_params][()].decode("utf-8") == toml.dumps(key_dict["params"]):
-                    print(f"{key_dict['key']} with the same parameters already exists in the dataset.")
+                    print(f"{key_dict['key'].key} with the same parameters already exists in the dataset.")
                     return True
                 else:
                     return False
@@ -73,7 +73,7 @@ class Analysis:
               key_dict = {"key": "foo",
                           "params": {"a": None, "b": None}},
               data = None,
-              overwrite = True):
+              ):
         """
         save data into dataset of h5 file specified by key_dict
         """
@@ -82,50 +82,54 @@ class Analysis:
         key_dict["params"]["frame_range"] = self.frame_range
         key_dict["params"]["stride"] = self.stride
         
-        fname = get_path(self.cfg, filetype=key_dict["key"], overwrite=overwrite)
+        fname = get_path(self.cfg, filetype=key_dict["key"])
         with h5py.File(fname, "a", locking=self.h5pylock) as fh5:
+            curr_param_key = key_dict["key"].key + "_params"
+            curr_key = key_dict["key"].key
             while True:
                 # check if parameters of spectified calculation already exist
-                if key_dict["key"] + "_params" in fh5.keys():
+                if curr_param_key in fh5.keys():
                     # if they do exist, check if parameters are the same
-                    if fh5[key_dict["key"] + "_params"][()].decode("utf-8") != toml.dumps(key_dict["params"]):
+                    if fh5[curr_param_key][()].decode("utf-8") != toml.dumps(key_dict["params"]):
                         # if the same dataset uses different parameters, ask if they should be overwritten
-                        print(f"{key_dict['key']} already exists in the dataset, using different parameters.")
-                        print(f"Old parameters:\n{fh5[key_dict['key'] + '_params'][()].decode('utf-8')}")
+                        print(f"{curr_key} already exists in the dataset, using different parameters.")
+                        print(f"Old parameters:\n{fh5[curr_param_key][()].decode('utf-8')}")
                         print(f"New parameters:\n{toml.dumps(key_dict['params'])}")
                         overwrite = "y" == input("Do you want to overwrite it? [y/n]: ")
                         if overwrite:
-                            del fh5[key_dict["key"] + "_params"]
-                            del fh5[key_dict["key"]]
+                            del fh5[curr_param_key]
+                            del fh5[curr_key]
                             break
                         # if they should not be overwritten ask for new name
                         print(f"The following keys are already in the dataset: {[key for key in fh5.keys() if '_params' not in key]}")
-                        key_dict["key"] = input("Please enter a new key: ")
-                        if key_dict["key"] not in fh5.keys():
+                        curr_key = input("Please enter a new key: ")
+                        curr_param_key = curr_key + "_params"
+                        if curr_key not in fh5.keys():
                             break
                     # if dataset already exists and parameters used for calculation are the same, ask if it should be overwritten or if the calculation should be skipped
                     else:
-                        print(f"File {fname} already contains {key_dict['key']} with the same parameters.")
+                        print(f"File {fname} already contains {curr_key} with the same parameters.")
                         overwrite = "y" == input("Do you want to overwrite the dataset anyways? [y/n]: ")
                         if overwrite:
-                            del fh5[key_dict["key"] + "_params"]
-                            del fh5[key_dict["key"]]
+                            del fh5[curr_param_key]
+                            del fh5[curr_key]
                             break
                         else:
                             # if old calculation should not be overwritten, ask if it should be saved under a different name
                             save = "y" == input("Do you want to save the new calculation under a different name? [y/n]: ")
                             if save:
                                 print(f"The following keys are already in the dataset: {[key for key in fh5.keys() if '_params' not in key]}")
-                                key_dict["key"] = input("Please enter a new key: ")
-                                if key_dict["key"] not in fh5.keys():
+                                curr_key = input("Please enter a new key: ")
+                                curr_param_key = curr_key + "_params"
+                                if curr_key not in fh5.keys():
                                     break
                             else:
                                 return
                 else:
                     break
             
-            fh5.create_dataset(key_dict["key"] + "_params", data=toml.dumps(key_dict["params"]))
-            fh5.create_dataset(key_dict["key"], data=data)
+            fh5.create_dataset(curr_param_key, data=toml.dumps(key_dict["params"]))
+            fh5.create_dataset(curr_key, data=data)
     
     def rdf(self,
             r_range = None,
@@ -143,7 +147,7 @@ class Analysis:
         #      which has been double checked with the VMD rdf plugin
         #      therefor it is save to assume that the rust get_dist function is correct
         
-        key_dict = {"key": "rdf",
+        key_dict = {"key": Filetypes.Rdf,
                     "params": {"r_range": r_range, 
                                "n_bins": n_bins,
                                "bin_width": bin_width,
@@ -152,7 +156,7 @@ class Analysis:
         if self._exists(key_dict):
             fname = get_path(self.cfg, filetype=key_dict["key"])
             with h5py.File(fname, "r", locking=self.h5pylock) as fh5:
-                key = key_dict["key"]
+                key = key_dict["key"].key
                 r = fh5[key][0,:]
                 g_r = fh5[key][1,:]
                 return r, g_r
@@ -197,11 +201,11 @@ class Analysis:
         if report_stride == 0:
             report_stride = 1
 
-        fname_h5 = get_path(self.cfg, filetype=ResultsFiletypes.Trajectory.value, overwrite=True)
+        fname_h5 = get_path(self.cfg, filetype=Filetypes.Trajectory)
         with h5py.File(fname_h5, "r", locking=self.h5pylock) as fh5:
             for i, frame_idx in enumerate(self.frame_indices):
                 
-                get_dist(fh5[ResultsFiletypes.Trajectory.value][frame_idx].astype(np.float64), distances, self.cfg.lbox, self.cfg.n_particles, n_dim)
+                get_dist(fh5[Filetypes.Trajectory.key][frame_idx].astype(np.float64), distances, self.cfg.lbox, self.cfg.n_particles, n_dim)
                 
                 g_r_frame, edges = np.histogram(distances[mask_pairs], range=r_range, bins=n_bins)
                 #! TODO TODO TODO TODO TODO TODO TODO 
@@ -241,7 +245,7 @@ class Analysis:
         # number_density = len(pairs) * np.sum(1.0 / unitcell_volumes) / natoms / len(self.trajectory)
         
         if save:
-            self._save(key_dict, np.array([r, g_r]), overwrite=overwrite)
+            self._save(key_dict, np.array([r, g_r]))
         
         if return_all:
             return r, g_r
@@ -293,14 +297,14 @@ class Analysis:
         if not save and not return_all:
             raise ValueError("Either save or return_all has to be True")
         
-        key_dict = {"key": "structure_factor_rdf",
+        key_dict = {"key": Filetypes.StructureFactorRdf,
                     "params": {"qmax": qmax, "n": n, "tags": tags}}
         
         # if the calculation was already done, load it
         if self._exists(key_dict):
             fname = get_path(self.cfg, filetype=key_dict["key"])
             with h5py.File(fname, "r", locking=self.h5pylock) as fh5:
-                key = key_dict["key"]
+                key = key_dict["key"].key
                 Q = fh5[key][0,:]
                 S_q = fh5[key][1,:]
                 return Q, S_q
@@ -339,7 +343,7 @@ class Analysis:
         # S_q = 1 + 4*np.pi*rho*dr * S_q / n_r
 
         if save == True:
-            self._save(key_dict, np.array([Q, S_q]), overwrite=overwrite)
+            self._save(key_dict, np.array([Q, S_q]))
         
         if return_all:
             return Q, S_q
@@ -358,14 +362,14 @@ class Analysis:
         if not save and not return_all:
             raise ValueError("Either save or return_all has to be True")
         
-        key_dict = {"key": "structure_factor_direct",
+        key_dict = {"key": Filetypes.StructureFactor,
                     "params": {"qmax": qmax, "n": n, "tags": tags}}
         
         # if the calculation was already done, load it
         if self._exists(key_dict):
             fname = get_path(self.cfg, filetype=key_dict["key"])
             with h5py.File(fname, "r", locking=self.h5pylock) as fh5:
-                key = key_dict["key"]
+                key = key_dict["key"].key
                 Q = fh5[key][0,:]
                 S_q = fh5[key][1,:]
                 return Q, S_q
@@ -404,11 +408,11 @@ class Analysis:
         print("--------------------")
         
         # loop over all distances and calculate the structure factor for all q for each frame
-        fname_h5 = get_path(self.cfg, filetype=ResultsFiletypes.Trajectory.value, overwrite=True)
+        fname_h5 = get_path(self.cfg, filetype=Filetypes.Trajectory)
         with h5py.File(fname_h5, "r", locking=self.h5pylock) as fh5:
             for i, frame_idx in enumerate(self.frame_indices):
                 
-                get_dist(fh5[ResultsFiletypes.Trajectory.value][frame_idx].astype(np.float64), distances, self.cfg.lbox, self.cfg.n_particles, n_dim)
+                get_dist(fh5[Filetypes.Trajectory.key][frame_idx].astype(np.float64), distances, self.cfg.lbox, self.cfg.n_particles, n_dim)
                 for n, q in enumerate(Q[1:]):
                     # calc S(q) for every q in current frame
                     S_q[n+1] += np.sum(np.sin(q*distances[mask_pairs])/(q*distances[mask_pairs]))
@@ -420,7 +424,7 @@ class Analysis:
         S_q = S_q/n_frames/n_atoms
         
         if save:
-            self._save(key_dict, np.array([Q, S_q]), overwrite=overwrite)
+            self._save(key_dict, np.array([Q, S_q]))
         
         if return_all:
             return Q, S_q        
@@ -432,13 +436,13 @@ class Analysis:
                              overwrite = True,
                              particle_type = 0):
         
-        key_dict = {"key": ResultsFiletypes.StressTensor.value,
+        key_dict = {"key": Filetypes.StressTensor,
                     "params": {"particle_type": particle_type}}
         
         if self._exists(key_dict):
-            fname = get_path(self.cfg, filetype=ResultsFiletypes.StressTensor.value)
+            fname = get_path(self.cfg, filetype=Filetypes.StressTensor)
             with h5py.File(fname, "r", locking=self.h5pylock) as fh5:
-                key = key_dict["key"]
+                key = key_dict["key"].key
                 sigma_t = fh5[key][:]
                 return sigma_t
         
@@ -447,11 +451,8 @@ class Analysis:
         lbox2  = self.cfg.lbox/2 
         
         # open trajectory and forces h5 files
-        traj_filetype = ResultsFiletypes.Trajectory.value
-        forces_filetype = ResultsFiletypes.Forces.value
-        
-        traj_h5_file   = h5py.File(get_path(self.cfg, filetype=traj_filetype), "r", locking=self.h5pylock)
-        forces_h5_file = h5py.File(get_path(self.cfg, filetype=forces_filetype), "r", locking=self.h5pylock)
+        traj_h5_file   = h5py.File(get_path(self.cfg, filetype=Filetypes.Trajectory), "r", locking=self.h5pylock)
+        forces_h5_file = h5py.File(get_path(self.cfg, filetype=Filetypes.Forces), "r", locking=self.h5pylock)
         #traj_h5 = traj_h5_file[traj_filetype]
         #forces_h5 = forces_h5_file[forces_filetype]
         
@@ -475,7 +476,7 @@ class Analysis:
         for idx_t, idx_i in enumerate(self.frame_indices):
             for a in range(3):
                 for b in range(a, 3):
-                    sigma_t[idx_t, a, b] += np.sum((traj_h5_file[traj_filetype][idx_i, mask_frame, a] - lbox2) * forces_h5_file[forces_filetype][idx_i, mask_frame, b])
+                    sigma_t[idx_t, a, b] += np.sum((traj_h5_file[Filetypes.Trajectory.key][idx_i, mask_frame, a] - lbox2) * forces_h5_file[Filetypes.Forces.key][idx_i, mask_frame, b])
             if idx_t%report_stride == 0:
                 print(f"{idx_t:<8d} of {self.n_frames:8d}")
         
@@ -497,7 +498,7 @@ class Analysis:
                     sigma_t[k,j,i] = sigma_t[k,i,j]
         
         if save:
-            self._save(key_dict, sigma_t, overwrite=overwrite) 
+            self._save(key_dict, sigma_t) 
         
         traj_h5_file.close()
         forces_h5_file.close()
@@ -530,13 +531,13 @@ class Analysis:
         """
         
         
-        key_dict = {"key": "msd",
+        key_dict = {"key": Filetypes.Msd,
                     "params": {"tracer_tag": tracer_tag}}
         
         if self._exists(key_dict=key_dict):
-            fname = get_path(self.cfg, filetype=key_dict["key"], overwrite=overwrite)
+            fname = get_path(self.cfg, filetype=key_dict["key"])
             with h5py.File(fname, "r", locking=self.h5pylock) as fh5:
-                key = key_dict["key"]
+                key = key_dict["key"].key
                 t = fh5[key][0]
                 msd = fh5[key][1]
                 return t, msd
@@ -547,9 +548,9 @@ class Analysis:
         #only calculate msd fr selected particle type
         tag_mask = self.topology.tags == tracer_tag
         
-        with h5py.File(get_path(self.cfg, filetype=ResultsFiletypes.Trajectory.value, overwrite=overwrite), "r", locking=self.h5pylock) as fh5:
+        with h5py.File(get_path(self.cfg, filetype=Filetypes.Trajectory), "r", locking=self.h5pylock) as fh5:
             
-            frame0 = fh5[ResultsFiletypes.Trajectory.value][self.frame_indices[0], tag_mask, :]
+            frame0 = fh5[Filetypes.Trajectory.key][self.frame_indices[0], tag_mask, :]
             
             n_tracers = len(frame0)
             print(f"Number of tracer particles: {n_tracers}")
@@ -560,7 +561,7 @@ class Analysis:
             print("Undo pbc shift ...")
 
             for k, i in enumerate(self.frame_indices[1:], start=1):
-                frame1 = fh5[ResultsFiletypes.Trajectory.value][i, tag_mask, :]
+                frame1 = fh5[Filetypes.Trajectory.key][i, tag_mask, :]
                 dr = frame1 - frame0
                 traj_abs[k] = traj_abs[k-1] + dr - self.cfg.lbox * np.round(dr / self.cfg.lbox)
                 frame0 = np.copy(frame1)
@@ -576,7 +577,7 @@ class Analysis:
         t = np.arange(len(msd))*self.cfg.stride*self.cfg.timestep
         
         if save:
-            self._save(key_dict=key_dict, data=np.array([t, msd]), overwrite=overwrite)
+            self._save(key_dict=key_dict, data=np.array([t, msd]))
             
         if return_all:
             return t, msd        
