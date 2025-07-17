@@ -47,6 +47,10 @@ class System:
         self.cell_length            = None
         self.n_neighbor_cells       = None
         
+        self.active_particle_present    = None
+        self.active_particle_indices    = None
+        self.n_active_particles         = None
+        
         self.setup()
         
     #! TODO TODO TODO TODO TODO TODO
@@ -118,7 +122,14 @@ class System:
         self.list_array = -np.ones(self.n_particles, dtype=np.int16)
         
         self.update_linked_list()
+        
+        self.active_particle_present = self.topology.tag_active_particle is not None
 
+        if self.active_particle_present:
+            self.active_particle_indices = np.where(self.topology.tags == self.topology.tag_active_particle)[0]
+            self.n_active_particles = len(self.active_particle_indices)
+            
+            
     def update_linked_list(self):
         """
         updates the list and head array for the current positions
@@ -203,7 +214,13 @@ class System:
         # the std used here is sqrt(2*mu)
         
         # TODO THIS WILL BREAK WHEN MOBILITY IS CHANGED TO SHAPE (ntags)
-        return np.sqrt(2*self.timestep*self.mobility_list)*np.random.randn(self.n_particles, 3)    
+        return np.sqrt(2*self.timestep*self.mobility_list)*np.random.randn(self.n_particles, 3)
+    
+    def force_Random_Correlated(self, step):
+        
+        force = step*np.random.randn(self.n_active_particles, 3)
+        
+        return force
     
     def apply_pbc(self):
         """
@@ -286,33 +303,6 @@ class System:
                 self.n_neighbor_cells
             )
             
-            # rmc.get_forces_cell_linked(
-            #     self.positions,
-            #     self.topology.tags,
-            #     self.topology.bond_table,
-            #     self.topology.force_constant_nn,
-            #     self.topology.r0_bond,
-            #     self.topology.sigma_lj,
-            #     self.topology.epsilon_lj,
-            #     self.topology.q_particle,
-            #     self.config.lB_debye,
-            #     self.B_debye,
-            #     self.forces,
-            #     self.dist_chunk[idx_chunk],
-            #     self.box_length,
-            #     self.config.cutoff_pbc**2,
-            #     self.n_particles,
-            #     3,                          # number of dimensions
-            #     write_distances,
-            #     True,                       # use bond force
-            #     True,                       # use LJ force
-            #     False,                      # use Debye force
-            #     self.neighbor_cells_idx,
-            #     self.head_array,
-            #     self.list_array,
-            #     self.n_cells,
-            #     self.n_neighbor_cells
-            # )
             
             # reset distance flag until next stride
             write_distances = False
@@ -346,6 +336,9 @@ class System:
             
             # integrate                                     # TODO implement mobility in forces
             self.positions = self.positions + self.timestep*self.mobility_list*self.forces + self.force_Random()
+            
+            if self.active_particles_present:
+                self.positions[self.active_particle_indices] += self.force_Random_Correlated(step)
             
         t_end = time()
         

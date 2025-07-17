@@ -34,10 +34,10 @@ class Topology:
         else:
             self.r0_bond        = np.array(params["r0_bonds"])
         
-        
-        
         self.n_particles        = len(self.positions)
         self.ntags              = len(set(self.tags))
+        
+        self.tag_active_particle = params["tag_active_particle"]
         
         self._validate_input()
         # self._clean_parameter_file(Config) #! NECESSARY???
@@ -103,6 +103,11 @@ class Topology:
             for i, mob in zip(tags, mob_all):
                 mob_particle[i] = mob
             params["mobilities"] = mob_particle.tolist()
+        
+        if "tag_active_particle" not in params.keys():
+            params["tag_active_particle"] = None
+        else:
+            params["tag_active_particle"] = int(params["tag_active_particle"])
         
         return params
     

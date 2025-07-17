@@ -65,6 +65,7 @@ class ParametersKeys(Enum):
     BondList            = "bond_list"
     BondDistance        = "r0_bonds"
     Tags                = "tags"
+    TagActiveParticle   = "tag_active_particle"
 
 
 class ConfigKeys(Enum):
