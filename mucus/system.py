@@ -24,6 +24,7 @@ class System:
         self.timestep               = None
         self.chunksize              = None
         self.n_particles            = None
+        self.particle_indices       = None
         self.B_debye                = None        
         self.box_length             = None
         self.positions              = None
@@ -43,6 +44,7 @@ class System:
         self.neighbor_cells_idx     = None
         self.head_array             = None
         self.list_array             = None
+        
         self.n_cells                = None
         self.cell_length            = None
         self.n_neighbor_cells       = None
@@ -58,10 +60,11 @@ class System:
       
     def setup(self):
         
-        self.n_particles     = self.config.n_particles
-        self.box_length      = self.config.lbox
-        self.timestep        = self.config.timestep
-        self.lB_debye        = self.config.lB_debye # units of beed radii                                       
+        self.n_particles        = self.config.n_particles
+        self.particle_indices   = np.arange(self.n_particles)
+        self.box_length         = self.config.lbox
+        self.timestep           = self.config.timestep
+        self.lB_debye           = self.config.lB_debye # units of beed radii                                       
         
         self.traj_chunk      = np.zeros((self.config.chunksize, self.n_particles, 3))
         self.force_chunk     = np.zeros((self.config.chunksize, self.n_particles, 3))
@@ -110,19 +113,24 @@ class System:
         
         # calculate the number of cells in each direction
         self.n_cells = int(self.box_length/self.config.cutoff_pbc)
-        self.cell_length = self.box_length/self.n_cells
+        self.cell_length = float(self.box_length/self.n_cells)
         
         # get the indices of the neighboring cells and self with shape (n_neighbor_cells + 1, 3)
-        self.neighbor_cells_idx = np.indices((3, 3, 3), dtype=np.int16).reshape(3, -1).T - 1
+        self.neighbor_cells_idx = np.array(np.indices((3, 3, 3), dtype=int).reshape(3, -1).T - 1).astype(int)
         self.n_neighbor_cells = self.neighbor_cells_idx.shape[0]
         
         self.apply_pbc()
         
-        self.head_array = -np.ones((self.n_cells, self.n_cells, self.n_cells), dtype=np.int16)
-        self.list_array = -np.ones(self.n_particles, dtype=np.int16)
+        self.head_array = -np.ones((self.n_cells, self.n_cells, self.n_cells), dtype=int)
+        self.list_array = -np.ones(self.n_particles, dtype=int)
         
-        self.update_linked_list()
-        
+        rmc.update_linked_list(
+            self.list_array,
+            self.head_array,
+            self.positions,
+            self.cell_length
+        )
+    
         self.active_particle_present = self.topology.tag_active_particle is not None
 
         if self.active_particle_present:
@@ -130,20 +138,6 @@ class System:
             self.n_active_particles = len(self.active_particle_indices)
             
             
-    def update_linked_list(self):
-        """
-        updates the list and head array for the current positions
-        """
-        
-        self.list_array.fill(-1)
-        self.head_array.fill(-1)
-        
-        # get cell index for each particle
-        self.cell_index = np.floor(self.positions/self.cell_length).astype(np.int16)
-        
-        for i, cell_idx in enumerate(self.cell_index):
-            self.list_array[i] = self.head_array[cell_idx[0], cell_idx[1], cell_idx[2]]
-            self.head_array[cell_idx[0], cell_idx[1], cell_idx[2]] = i
     
     # TODO MOVE THIS TO config: something like config.print()
     def print_sim_info(self):
@@ -263,14 +257,20 @@ class System:
         idx_chunk = 0 
         idx_traj = 0
         
+        
         print(f"\nStarting simulation with {self.config.steps} steps.")
         for step in tqdm(range(self.config.steps)):
             
             # apply periodic boundary conditions (0, L) x (0, L) x (0, L)
             self.apply_pbc()
             
-            # update linked list
-            self.update_linked_list()
+            rmc.update_linked_list(
+                self.list_array,
+                self.head_array,
+                self.positions,
+                self.cell_length
+            )
+            
             
             # calculate forces
             self.forces.fill(0)
@@ -303,11 +303,11 @@ class System:
                 self.n_neighbor_cells
             )
             
-            
             # reset distance flag until next stride
             write_distances = False
             
             if step%self.config.stride==0:
+                
                 
                 if self.config.write_traj:    
                     self.traj_chunk[idx_chunk] = self.positions
@@ -332,12 +332,13 @@ class System:
                     
                     idx_traj += self.config.chunksize
                     idx_chunk = 0
-            
+
             
             # integrate                                     # TODO implement mobility in forces
             self.positions = self.positions + self.timestep*self.mobility_list*self.forces + self.force_Random()
             
-            if self.active_particles_present:
+            
+            if self.active_particle_present:
                 self.positions[self.active_particle_indices] += self.force_Random_Correlated(step)
             
         t_end = time()

@@ -89,6 +89,9 @@ class ConfigKeys(Enum):
     NameSys             = "name_sys"
     DirSys              = "dir_sys"
     SimulationTime      = "simulation_time"
+    UsePotBond          = "use_pot_bond"
+    UsePotWCA           = "use_pot_WCA"
+    UsePotDebye         = "use_pot_debye"
 
 class NatrualConstantsSI(Enum):
     kB = 1.380649e-23   # m^2 kg s^-2 K^-1  Boltzmann constant
