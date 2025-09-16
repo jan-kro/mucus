@@ -26,7 +26,7 @@ class Topology:
         self.epsilon_lj         = np.array(params[ParametersKeys.LjEpsilon.value])
         self.sigma_lj           = np.array(params[ParametersKeys.LjSigma.value])
         self.tags               = np.array(params[ParametersKeys.Tags.value])
-        self.bonds              = np.array(params[ParametersKeys.Bonds]) 
+        self.bonds              = np.array(params[ParametersKeys.Bonds.value]) 
         
         
         if ParametersKeys.BondDistance.value not in params.keys():
