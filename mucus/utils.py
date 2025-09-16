@@ -62,7 +62,7 @@ class ParametersKeys(Enum):
     LjEpsilon           = "epsilon_LJ"
     LjSigma             = "sigma_LJ"
     BondTable           = "bond_table"
-    BondList            = "bond_list"
+    Bonds               = "bonds"
     BondDistance        = "r0_bonds"
     Tags                = "tags"
     TagActiveParticle   = "tag_active_particle"

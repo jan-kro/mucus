@@ -49,9 +49,6 @@ class Config(BaseModel, arbitrary_types_allowed=True):
     @classmethod
     def from_toml(cls, path):
         
-        if path == "test":
-            path = "/net/storage/janmak98/masterthesis/output/test_systems/configs/cfg_mesh_tracer_6a_uncharged.toml"
-        
         data = toml.load(open(path, encoding="UTF-8"))
 
         name_sys = data["name_sys"]

@@ -16,28 +16,28 @@ class Topology:
     
     def __init__(self, Config: Config):
         
-        self.positions = np.load(get_path(Config, Filetypes.InitPos))
+        self.positions = np.load(get_path(Config, Filetypes.InitPos)).astype(np.float64)
         params = self._load_params(Config)
         
-        self.r_particle         = np.array(params["r_particles"])
-        self.q_particle         = np.array(params["q_particles"])
-        self.mobility           = np.array(params["mobilities"])
-        self.force_constant_nn  = np.array(params["force_constants"])
-        self.epsilon_lj         = np.array(params["epsilon_LJ"])
-        self.sigma_lj           = np.array(params["sigma_LJ"])
-        self.tags               = np.array(params["tags"])
-        self.bonds              = np.array(params["bonds"]) 
+        self.r_particle         = np.array(params[ParametersKeys.ParticleRadius.value])
+        self.q_particle         = np.array(params[ParametersKeys.ParticleCharge.value])
+        self.mobility           = np.array(params[ParametersKeys.Mobility.value])
+        self.force_constant_nn  = np.array(params[ParametersKeys.ForceConstant.value])
+        self.epsilon_lj         = np.array(params[ParametersKeys.LjEpsilon.value])
+        self.sigma_lj           = np.array(params[ParametersKeys.LjSigma.value])
+        self.tags               = np.array(params[ParametersKeys.Tags.value])
+        self.bonds              = np.array(params[ParametersKeys.Bonds]) 
         
         
-        if "r0_bonds" not in params.keys():
+        if ParametersKeys.BondDistance.value not in params.keys():
             self.r0_bond        = 2*np.ones_like(self.force_constant_nn)
         else:
-            self.r0_bond        = np.array(params["r0_bonds"])
+            self.r0_bond        = np.array(params[ParametersKeys.BondDistance.value])
         
         self.n_particles        = len(self.positions)
         self.ntags              = len(set(self.tags))
         
-        self.tag_active_particle = params["tag_active_particle"]
+        self.tag_active_particle = params[ParametersKeys.TagActiveParticle.value]
         
         self._validate_input()
         # self._clean_parameter_file(Config) #! NECESSARY???
@@ -46,7 +46,10 @@ class Topology:
     def _load_params(self, Config: Config):
         params = toml.load(open(get_path(Config, Filetypes.Parameters), encoding="UTF-8"))
         
+        #! Todo use parameter keys class
+        
         # BACKWARDS COMPATIBILITY
+        
         if "rbeads" in params.keys():
             params["r_particles"] = params["rbeads"]
             params.pop("rbeads")
@@ -65,7 +68,7 @@ class Topology:
             bonds = np.array(self.bonds, dtype=np.uint)
             
         elif "bonds" in params.keys():
-            if Path(params["bonds"]).is_file():
+            if self._is_existing_file(str(params["bonds"])):
                 bonds = np.load(params["bonds"]).astype(np.uint)
             else:
                 bonds = np.array(params["bonds"], dtype=np.uint)
@@ -75,7 +78,7 @@ class Topology:
         
         if "tags" not in params.keys():
             tags = np.load(get_path(Config, Filetypes.Tags)).astype(np.uint) 
-        elif Path(params["tags"]).is_file():
+        elif self._is_existing_file(str(params["tags"])):
             tags = np.load(params["tags"]).astype(np.uint)
         else:
             tags = np.array(params["tags"], dtype=np.uint)
@@ -110,6 +113,13 @@ class Topology:
             params["tag_active_particle"] = int(params["tag_active_particle"])
         
         return params
+    
+    def _is_existing_file(self, path_str):
+        try:
+            path = Path(path_str)
+            return path.is_file()
+        except (OSError, ValueError, TypeError):
+            return False
     
     #! completely unnecessary: use toml.dump() instead 
     def _clean_parameter_file(self, config: Config):#, fout: str = None, overwrite: bool = True):

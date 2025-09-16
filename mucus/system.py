@@ -163,7 +163,7 @@ class System:
     
     def set_positions(self, pos):
         
-        self.positions = pos
+        self.positions = np.array(pos, dtype=np.float64)
         
         return
     
@@ -291,7 +291,7 @@ class System:
                 self.box_length,
                 self.config.cutoff_pbc**2,
                 self.n_particles,
-                3,                          # number of spatial dimensions
+                3,                                              # number of spacial dimensions
                 write_distances,
                 self.config.use_pot_bond,                       # use bond force
                 self.config.use_pot_WCA,                        # use LJ force
