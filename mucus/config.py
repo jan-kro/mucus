@@ -35,6 +35,8 @@ class Config(BaseModel, arbitrary_types_allowed=True):
     name_sys:           Optional[str]           = None
     dir_sys:            Optional[str]           = None
     simulation_time:    Optional[float]         = None
+    calc_virial:        bool                    = False
+    stride_virial:      int                     = None
 
     # TODO shift all force field related parameters to topology
     # TODO add current time and date to properly track everything (maybe, because it is aleady in the file properties)
@@ -141,6 +143,7 @@ class Config(BaseModel, arbitrary_types_allowed=True):
             output = output.replace("=", " = ")
         return output
     
+    #! TODO is it necessary??
     @root_validator(pre=True)
     def _clean_config_file(cls, values):#, fout: str = None, overwrite: bool = True):
         """
@@ -170,6 +173,7 @@ class Config(BaseModel, arbitrary_types_allowed=True):
         
         return values
     
+    #! TODO not necessary
     def change_dir_sys(self, new_dir: str):
         
         if os.path.exists(new_dir):
@@ -178,7 +182,7 @@ class Config(BaseModel, arbitrary_types_allowed=True):
         else:
             raise ValueError(f"Directory {new_dir} does not exist.")
         
-        
+    #! TODO what is this even?
     def save_2(self, fout: str = None):
         #TODO I HAVE NOT TESTED THIS FUNCTION NO IDEA IF IT WORKS
         if fout is None:
@@ -186,7 +190,7 @@ class Config(BaseModel, arbitrary_types_allowed=True):
         with open(fout, "w") as f:
             toml.dump(self.dict(), f)        
             
-        
+    #! TODO maybe delete this    
     def save(self, fout: str = None, overwrite: bool = True):
         """
         saves all current values, in a .toml file with the specified filepath fout.

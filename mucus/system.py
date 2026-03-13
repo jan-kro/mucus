@@ -7,7 +7,7 @@ import rust_mucus as rmc
 
 from .config import Config
 from .topology import Topology
-from .utils import get_path, get_number_of_frames, Filetypes
+from .utils import get_path, get_number_of_frames, Filetypes #, get_forces_cell_linked_virial_cuda, flatten_bond_list
 from pathlib import Path
 from tqdm import tqdm
 
@@ -53,6 +53,8 @@ class System:
         self.active_particle_indices    = None
         self.n_active_particles         = None
         
+        self.virial                 = None                    
+        
         self.setup()
         
     #! TODO TODO TODO TODO TODO TODO
@@ -85,7 +87,7 @@ class System:
         self.B_debye         = np.sqrt(self.config.c_S)*self.config.r0_nm/10 # from the relationship in the Hansing thesis [c_S] = mM
         self.mobility_list   = np.array([self.topology.mobility[i] for i in self.topology.tags], ndmin=2).reshape(-1, 1)
         
-        #TODO delete this nonsense
+        # TODO delete this nonsense
         # calculate debye cutoff from salt concentration
         if self.config.cutoff_debye == None:
             self.get_cutoff_debye()
@@ -137,6 +139,14 @@ class System:
             self.active_particle_indices = np.where(self.topology.tags == self.topology.tag_active_particle)[0]
             self.n_active_particles = len(self.active_particle_indices)
             
+        self.virial = np.zeros((3,3), dtype=float)
+        if self.config.calc_virial:
+            self.write_virial = True
+        else:
+            self.write_virial = False
+            
+        if self.config.stride_virial is None:
+            self.config.stride_virial = self.config.stride
             
     
     # TODO MOVE THIS TO config: something like config.print()
@@ -231,10 +241,9 @@ class System:
         Simulates the overdamped Langevin dynamics of the system with the defined forcefield using forward Euler.
         """
         
-        t_start = time()
         
         n_frames = get_number_of_frames(self.config)
-        
+        n_frames_virial = int(self.config.steps/self.config.stride_virial)
         # create datasets
         
         # save initial pos
@@ -254,11 +263,25 @@ class System:
             fh5_forces = h5py.File(get_path(self.config, filetype=Filetypes.Forces), 'w-')
             fh5_forces.create_dataset(Filetypes.Forces.key, shape=(n_frames, self.n_particles, 3), dtype="float32")
         
+        if self.config.calc_virial:
+            calc_virial = True
+            fh5_virial = h5py.File(get_path(self.config, filetype=Filetypes.Virial), 'w-')
+            fh5_virial.create_dataset(Filetypes.Virial.key, shape=(n_frames_virial, 3, 3), dtype="float32")
+        else:
+            calc_virial = False
+            
         idx_chunk = 0 
         idx_traj = 0
+        idx_virial = 0
         
+        # flatten bond_list
+        bond_offsets, bond_neighbors = flatten_bond_list(self.bond_list)
+        
+        # testing purposes: 
+        print("force cutoff: config.cutoff_pbc", self.config.cutoff_pbc)
         
         print(f"\nStarting simulation with {self.config.steps} steps.")
+        t_start = time()
         for step in tqdm(range(self.config.steps)):
             
             # apply periodic boundary conditions (0, L) x (0, L) x (0, L)
@@ -271,11 +294,15 @@ class System:
                 self.cell_length
             )
             
+            # TODO hack: remove later
+            if step%self.config.stride_virial==0 and self.config.calc_virial:
+                calc_virial = True 
             
             # calculate forces
             self.forces.fill(0)
             
-            rmc.get_forces_cell_linked_test(
+            # rmc.get_forces_cell_linked_test(
+            rmc.get_forces_cell_linked_virial(
                 self.positions,
                 self.topology.tags,
                 self.bond_list,
@@ -292,7 +319,7 @@ class System:
                 self.config.cutoff_pbc**2,
                 self.n_particles,
                 3,                                              # number of spacial dimensions
-                write_distances,
+                write_distances,                                #! deprecated
                 self.config.use_pot_bond,                       # use bond force
                 self.config.use_pot_WCA,                        # use LJ force
                 self.config.use_pot_debye,                      # use Debye force
@@ -300,14 +327,53 @@ class System:
                 self.head_array,
                 self.list_array,
                 self.n_cells,
-                self.n_neighbor_cells
+                self.n_neighbor_cells,
+                calc_virial,
+                self.virial
             )
+            # get_forces_cell_linked_virial_cuda(
+            #     self.positions,
+            #     self.topology.tags,
+            #     bond_offsets,
+            #     bond_neighbors,
+            #     self.topology.force_constant_nn,
+            #     self.topology.r0_bond,
+            #     self.topology.sigma_lj,
+            #     self.topology.epsilon_lj,
+            #     self.topology.q_particle,
+            #     self.config.lB_debye,
+            #     self.B_debye,
+            #     self.forces,
+            #     self.dist_chunk[idx_chunk],
+            #     self.box_length,
+            #     self.config.cutoff_pbc**2,
+            #     self.n_particles,
+            #     3,                                              # number of spacial dimensions
+            #     write_distances,                                #! deprecated
+            #     self.config.use_pot_bond,                       # use bond force
+            #     self.config.use_pot_WCA,                        # use LJ force
+            #     self.config.use_pot_debye,                      # use Debye force
+            #     self.neighbor_cells_idx,
+            #     self.head_array,
+            #     self.list_array,
+            #     self.n_cells,
+            #     self.n_neighbor_cells,
+            #     calc_virial,
+            #     self.virial)
             
             # reset distance flag until next stride
+            # TODO remove this
             write_distances = False
             
-            if step%self.config.stride==0:
-                
+            # TODO implement virial chunk
+            if step%self.config.stride_virial==0 and self.config.calc_virial:
+                fh5_virial[Filetypes.Virial.key][idx_virial] = self.virial
+                self.virial.fill(0.0)
+                calc_virial = False
+                idx_virial += 1
+            
+            if step%self.config.stride==0:  
+              
                 
                 if self.config.write_traj:    
                     self.traj_chunk[idx_chunk] = self.positions
@@ -317,7 +383,8 @@ class System:
                     
                 if self.config.write_distances:
                     write_distances = True
-                    
+                
+                
                 idx_chunk += 1
                 
                 if idx_chunk == self.config.chunksize:
@@ -360,8 +427,11 @@ class System:
             fh5_forces.close()
         if self.config.write_distances:    
             fh5_distances.close()
+        if self.config.calc_virial:
+            fh5_virial.close()
         
         # save config
         self.config.save()
 
         return
+    

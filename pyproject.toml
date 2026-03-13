@@ -15,7 +15,7 @@ tidynamics = "1.0.0"
 h5py = "^3.9.0"
 tqdm = "4.67.1" 
 matplotlib = "3.10.3"
-rust_mucus = {path = "/local_scratch/janmak98/rust_mucus", develop = false }
+rust_mucus = {path = "/net/storage/janmak98/Projects/rust_mucus", develop = false }
 
 
 [build-system]

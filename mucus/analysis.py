@@ -25,14 +25,14 @@ class Analysis:
                  stride: int = 1,
                  h5pylock: str = 'false'):
         
-        self.cfg = cfg
+        self.cfg      = cfg
         self.topology = Topology(cfg)
         
-        self.stride = stride
-        self.frame_range = _validate_frame_range(frame_range, get_number_of_frames(cfg))
+        self.stride        = stride
+        self.frame_range   = _validate_frame_range(frame_range, get_number_of_frames(cfg))
         self.frame_indices = np.arange(self.frame_range[0],self.frame_range[1],self.stride)
-        self.n_frames = len(self.frame_indices)
-        self.time = np.arange(self.frame_range[0],self.frame_range[1],self.stride)*self.cfg.stride*self.cfg.timestep # reduced units
+        self.n_frames      = len(self.frame_indices)
+        self.time          = np.arange(self.frame_range[0],self.frame_range[1],self.stride)*self.cfg.stride*self.cfg.timestep # reduced units
         
         self.h5pylock = h5pylock # this option is needed to be 'false' to open h5 files on a network drive
         
@@ -49,6 +49,7 @@ class Analysis:
         self.n_frames = len(self.frame_indices)
         self.time = np.arange(self.frame_range[0],self.frame_range[1],self.stride)*self.cfg.stride*self.cfg.timestep
     
+    # TODO key_dict kwargs should be a Enum class
     def _exists(self,
                 key_dict = {"key": None,
                             "params": {"a": None, "b": None}}):
@@ -68,7 +69,7 @@ class Analysis:
                     return True
                 else:
                     return False
-        
+    #! TODO FIX THIS SHIT    
     def _save(self,
               key_dict = {"key": "foo",
                           "params": {"a": None, "b": None}},
@@ -89,7 +90,7 @@ class Analysis:
             while True:
                 # check if parameters of spectified calculation already exist
                 if curr_param_key in fh5.keys():
-                    # if they do exist, check if parameters are the same
+                    # if they do exist, check if parameters are the same NOTE this does not make sense unless every key for every parameter set is different
                     if fh5[curr_param_key][()].decode("utf-8") != toml.dumps(key_dict["params"]):
                         # if the same dataset uses different parameters, ask if they should be overwritten
                         print(f"{curr_key} already exists in the dataset, using different parameters.")
@@ -366,7 +367,7 @@ class Analysis:
                              g_r        = None,
                              radii      = None,    
                              tags       = [0,0],
-                             qmax       = 2.0,
+                             qmax       = np.pi,
                              n          = 1000,
                              save       = True,
                              overwrite  = False,
@@ -436,12 +437,12 @@ class Analysis:
             
         h_r = g_r - 1
 
-        S_q[0] = np.trapz(radii*h_r, x=radii)
+        S_q[0] = np.trapezoid(radii**2*h_r, x=radii)
 
         for q_idx, q in enumerate(Q[1:]):
             
             #S_q[q_idx+1] = np.sum(radii*h_r*np.sin(q*radii)/q)
-            S_q[q_idx+1] = np.trapz(radii*h_r*np.sin(q*radii)/q, x=radii)
+            S_q[q_idx+1] = np.trapezoid(radii*h_r*np.sin(q*radii)/q, x=radii)
         
         S_q = 1 + 4*np.pi*rho * S_q
         
@@ -547,7 +548,9 @@ class Analysis:
                              return_all = False,
                              overwrite = True,
                              particle_type = 0):
-        
+        """
+        !TODO calculate stress using reduced units!!! 
+        """
         key_dict = {"key": Filetypes.StressTensor,
                     "params": {"particle_type": particle_type}}
         
@@ -768,3 +771,4 @@ class Analysis:
 
         return cor
         
+    

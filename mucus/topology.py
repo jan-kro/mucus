@@ -6,8 +6,6 @@ from typing import Optional
 from pathlib import Path
 from .utils import get_path, Filetypes, ParametersKeys
 
-
-
 #!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #! Implement the Filetypes and ParameterKeys enum
 #!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -49,7 +47,6 @@ class Topology:
         #! Todo use parameter keys class
         
         # BACKWARDS COMPATIBILITY
-        
         if "rbeads" in params.keys():
             params["r_particles"] = params["rbeads"]
             params.pop("rbeads")
@@ -114,6 +111,7 @@ class Topology:
         
         return params
     
+    # TODO rename to _file_exists()
     def _is_existing_file(self, path_str):
         try:
             path = Path(path_str)
@@ -163,7 +161,7 @@ class Topology:
         f.close()
     
     def set_parameter(self, value, key="epsilon_LJ"):
-        
+        #! TODO loop over ParameterKeys Enum Instead
         if key == "epsilon_LJ":
             assert value.shape == self.epsilon_lj.shape, f"Shape of new parameter '{key}' does not match"
             self.epsilon_lj = value
@@ -325,6 +323,7 @@ class Topology:
         
         return
     
+    #! deprecated: use utils method insted
     def _get_path(self,
                   Config: Optional[Config], 
                   filetype: str = "trajectory",
