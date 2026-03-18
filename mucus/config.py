@@ -16,7 +16,7 @@ class Config(BaseModel, arbitrary_types_allowed=True):
     stride:             int
     n_particles:        int
     timestep:           float
-    r0_nm:              float                   = 0.1905 # 0.68 # bead radius in nm
+    r0_nm:              float                   = 0.1905 # wrong# bead radius in nm
     cutoff_LJ:          float                   = 2.0
     lB_debye:           float                   = 36.737 # 3.077
     c_S:                float                   = 10.0

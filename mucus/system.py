@@ -14,18 +14,28 @@ from tqdm import tqdm
 from time import time
 from copy import deepcopy 
 
+# TODO:
+# - remove distance writing option (deprecated)
+# - write an integrator function and call it during step()
+# - create seperate step function that is called during simulate() and can be used for single stepping 
+# - handle I/0 properly: 
+#    - use context manager for h5py files
+#    - create Writer class that can be called during step() 
+# - get rid of unnecessary null block in __init__
+# - get rid of the active particle handling demo code
+
 class System:
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config,  topology: Topology = None):
 
         self.config = config
-        self.topology = Topology(self.config)
+        self.topology = topology if topology is not None else Topology(self.config)
         
         self.timestep               = None
         self.chunksize              = None
         self.n_particles            = None
         self.particle_indices       = None
-        self.B_debye                = None        
+        self.B_debye                = None    # move into topology    
         self.box_length             = None
         self.positions              = None
         self.forces                 = None
@@ -65,8 +75,7 @@ class System:
         self.n_particles        = self.config.n_particles
         self.particle_indices   = np.arange(self.n_particles)
         self.box_length         = self.config.lbox
-        self.timestep           = self.config.timestep
-        self.lB_debye           = self.config.lB_debye # units of beed radii                                       
+        self.timestep           = self.config.timestep                                
         
         self.traj_chunk      = np.zeros((self.config.chunksize, self.n_particles, 3))
         self.force_chunk     = np.zeros((self.config.chunksize, self.n_particles, 3))
@@ -112,6 +121,7 @@ class System:
         
         # Define all necessary cell-linked list arrays
         # NOTE the following only works if pbc is used
+        # TODO write a seperate function to initialize the cell linked list arrays 
         
         # calculate the number of cells in each direction
         self.n_cells = int(self.box_length/self.config.cutoff_pbc)
@@ -241,7 +251,6 @@ class System:
         Simulates the overdamped Langevin dynamics of the system with the defined forcefield using forward Euler.
         """
         
-        
         n_frames = get_number_of_frames(self.config)
         n_frames_virial = int(self.config.steps/self.config.stride_virial)
         # create datasets
@@ -274,8 +283,8 @@ class System:
         idx_traj = 0
         idx_virial = 0
         
-        # flatten bond_list
-        bond_offsets, bond_neighbors = flatten_bond_list(self.bond_list)
+        # flatten bond_list (for cuda implementation)
+        # bond_offsets, bond_neighbors = flatten_bond_list(self.bond_list)
         
         # testing purposes: 
         print("force cutoff: config.cutoff_pbc", self.config.cutoff_pbc)
@@ -331,6 +340,7 @@ class System:
                 calc_virial,
                 self.virial
             )
+            
             # get_forces_cell_linked_virial_cuda(
             #     self.positions,
             #     self.topology.tags,

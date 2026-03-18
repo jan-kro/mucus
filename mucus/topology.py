@@ -6,10 +6,11 @@ from typing import Optional
 from pathlib import Path
 from .utils import get_path, Filetypes, ParametersKeys
 
-#!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# TODO
 #! Implement the Filetypes and ParameterKeys enum
-#!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+# - remove backwards compatibility for old parameter keys 
+# - remove key_dict and use the ParameterKeys enum instead
+# - add debye screening parameters
 class Topology: 
     
     def __init__(self, Config: Config):
