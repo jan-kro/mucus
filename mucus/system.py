@@ -17,13 +17,13 @@ from copy import deepcopy
 # TODO:
 # - remove distance writing option (deprecated)
 # - write an integrator function and call it during step()
-# - create seperate step function that is called during simulate() and can be used for single stepping 
+# - create separate step function that is called during simulate() and can be used for single stepping 
 # - handle I/0 properly: 
 #    - use context manager for h5py files
 #    - create Writer class that can be called during step() 
 # - get rid of unnecessary null block in __init__
 # - get rid of the active particle handling demo code
-
+# - 
 class System:
     
     def __init__(self, config: Config,  topology: Topology = None):
